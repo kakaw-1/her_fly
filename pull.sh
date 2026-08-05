@@ -62,6 +62,14 @@ mkdir -p /opt/data/scripts /opt/data/config
   || log "config 拉取未完全成功（继续启动）"
 
 # ── 4. 分发到运行位（无则保留镜像兜底文件）──
+# .env（密钥）：从存储源拉取 → /opt/data/.env（随备份自愈；仅当源存在时覆盖）
+if "$RCLONE" lsf "$SOURCE/.env" >/dev/null 2>&1; then
+  "$RCLONE" copy "$SOURCE/.env" /opt/data/ --s3-acl= \
+    || log ".env 拉取失败（继续启动，可能缺密钥）"
+  log "分发 .env → /opt/data/.env"
+else
+  log "存储源无 .env（使用本地/重建）"
+fi
 install_file() { # $1 S3侧相对路径(scripts/) $2 目标 $3 是否可执行
   if [[ -f "/opt/data/scripts/$1" ]]; then
     cp -f "/opt/data/scripts/$1" "$2"
