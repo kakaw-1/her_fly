@@ -13,11 +13,14 @@
                     │   ① 探测 S3 state/scripts                    │
                     │   ② S3 真空 → 切 R2 拉取                      │
                     │   ③ 双源全挂 → 镜像兜底（8080 存活）           │
-                    │   ④ 分发 scripts→/usr/local/bin、config→/etc │
-                    │   ⑤ exec entrypoint.sh                       │
+                    │   ④ 拉引导 scripts/ → 分发 /usr/local/bin     │
+                    │   ⑤ state-restore.sh（S3 脚本）               │
+                    │      恢复业务数据 → /opt/data（--update）     │
+                    │   ⑥ 分发 config → /etc                       │
+                    │   ⑦ exec entrypoint.sh                       │
                     │ entrypoint.sh                                │
-                    │   ⑥ health(8080) → 懒加载包重建 → DB 恢复     │
-                    │   ⑦ quick_check → supervisord                │
+                    │   ⑧ health(8080) → 懒加载包重建 → DB 恢复     │
+                    │   ⑨ quick_check → supervisord                │
                     │ supervisord: gateway / dashboard /           │
                     │   state-sync(5min→S3) / litestream(1s→S3)    │
                     └─────────────────────────────────────────────┘
@@ -31,13 +34,13 @@
 | 文件 | 作用 |
 |---|---|
 | `Dockerfile` | 基于 `nousresearch/hermes-agent:v2026.8.3`；内置 rclone v1.75、litestream 0.5.14、supervisor、cloudflared；内嵌最小兜底配置 |
-| `pull.sh` | 唯一启动入口：探测存储源 → 拉取 scripts/config/.env → 分发 → 交接 entrypoint |
+| `pull.sh` | 唯一启动入口（最小引导）：探测存储源 → 拉引导 `scripts/` → 分发 → 调用 S3 `state-restore.sh` → 交接 entrypoint |
 
 ## 启动链路
 
 1. **pull.sh**（镜像内，最小引导）：`lsf` 探测 S3 `state/scripts` → 拉取引导 `scripts/`；S3 真空/不可用切 R2；双源全挂则镜像兜底（8080 存活等待恢复）
 2. **分发**：`scripts/*` → `/usr/local/bin/`
-3. **state-restore.sh**（S3 脚本，业务数据恢复）：拉取完整 `/opt/data` 状态（config/.env/skills/memories/cron/plugins…）→ `/opt/data`，排除 lazy-packages/bin/缓存；**改 S3 上此脚本即改恢复策略，重启生效，无需改仓库/重建镜像**
+3. **state-restore.sh**（S3 脚本，业务数据恢复）：拉取完整 `/opt/data` 状态（config/.env/skills/memories/cron/plugins…）→ `/opt/data`，排除 lazy-packages/bin/缓存/her-fly，带 `--update`（本地新文件不被存储旧版覆盖）；**改 S3 上此脚本即改恢复策略，重启生效，无需改仓库/重建镜像**
 4. **entrypoint.sh**：bootstrap health(8080) → 懒加载包重建（按 `config/lazy-requirements.txt` 从 PyPI，幂等）→ DB 恢复（S3 源走 litestream restore←S3；R2 源走临时 file:// 配置 restore←R2）→ SQLite quick_check → 交接 supervisord
 5. **supervisord**：gateway / dashboard / state-sync / litestream / health.py(8080)
 
@@ -68,7 +71,7 @@ my-hermes-data/hermes-prod/
 │   ├── scripts/          # entrypoint / state-sync / r2-sync / bootstrap-packages / state-restore / health.py
 │   ├── config/           # litestream.yml / supervisord.conf / lazy-requirements.txt
 │   ├── .env              # 密钥备份（启动拉取自愈）
-│   └── …业务数据（lazy-packages/ 已排除，不备份）
+│   └── …业务数据（lazy-packages / bin / 缓存 / her-fly 已排除）
 └── litestream/           # state.db / kanban.db WAL（litestream 实时复制）
 ```
 
@@ -77,6 +80,7 @@ my-hermes-data/hermes-prod/
 - **S3（Cellar）主存储**：state-sync 每 5min + litestream 实时（1s 粒度）
 - **R2（Cloudflare）纯镜像**：每日 00:00 UTC cron 删除式镜像 `state/` + `litestream/`，失败告警投飞书
 - **懒加载包**（~459MB）不备份：启动时按清单从 PyPI 重建
+- **防覆盖**：restore 带 `--update`，本地新数据在 5min 未同步窗口或 R2 回退时不丢
 - **兜底链**：S3 → R2 → 镜像内嵌最小配置，三级降级
 
 ## 运维
