@@ -35,10 +35,11 @@
 
 ## 启动链路
 
-1. **pull.sh**：`lsf` 探测 S3 `state/scripts` → 可用则[拉取完整 `/opt/data` 状态](从 S3 `state/` 到 `/opt/data/`，含 scripts/config/.env/skills/memories/cron/plugins 等；排除 lazy-packages/bin)；S3 真空/不可用切 R2；双源全挂则镜像兜底（8080 存活等待恢复）
-2. **分发**：`scripts/*` → `/usr/local/bin/`；`config/litestream.yml`、`config/supervisord.conf` → `/etc/`；`.env` → `/opt/data/.env`（密钥自愈）
-3. **entrypoint.sh**：bootstrap health(8080) → 懒加载包重建（按 `config/lazy-requirements.txt` 从 PyPI，幂等）→ DB 恢复（S3 源走 litestream restore←S3；R2 源走临时 file:// 配置 restore←R2）→ SQLite quick_check → 交接 supervisord
-4. **supervisord**：gateway / dashboard / state-sync / litestream / health.py(8080)
+1. **pull.sh**（镜像内，最小引导）：`lsf` 探测 S3 `state/scripts` → 拉取引导 `scripts/`；S3 真空/不可用切 R2；双源全挂则镜像兜底（8080 存活等待恢复）
+2. **分发**：`scripts/*` → `/usr/local/bin/`
+3. **state-restore.sh**（S3 脚本，业务数据恢复）：拉取完整 `/opt/data` 状态（config/.env/skills/memories/cron/plugins…）→ `/opt/data`，排除 lazy-packages/bin/缓存；**改 S3 上此脚本即改恢复策略，重启生效，无需改仓库/重建镜像**
+4. **entrypoint.sh**：bootstrap health(8080) → 懒加载包重建（按 `config/lazy-requirements.txt` 从 PyPI，幂等）→ DB 恢复（S3 源走 litestream restore←S3；R2 源走临时 file:// 配置 restore←R2）→ SQLite quick_check → 交接 supervisord
+5. **supervisord**：gateway / dashboard / state-sync / litestream / health.py(8080)
 
 ## 部署（Clever Cloud）
 
@@ -64,7 +65,7 @@
 ```
 my-hermes-data/hermes-prod/
 ├── state/                # /opt/data 镜像（state-sync 每 5min）
-│   ├── scripts/          # entrypoint / state-sync / r2-sync / bootstrap-packages / health.py
+│   ├── scripts/          # entrypoint / state-sync / r2-sync / bootstrap-packages / state-restore / health.py
 │   ├── config/           # litestream.yml / supervisord.conf / lazy-requirements.txt
 │   ├── .env              # 密钥备份（启动拉取自愈）
 │   └── …业务数据（lazy-packages/ 已排除，不备份）
@@ -81,6 +82,7 @@ my-hermes-data/hermes-prod/
 ## 运维
 
 - **改配置**：改 S3 `state/config` 或 `state/scripts` → 重启容器生效；或在容器内改 `/opt/data/scripts|config` → state-sync 5min 自动推 S3
+- **改恢复策略**：改 S3 `state/scripts/state-restore.sh`（拉取范围/排除项）→ 重启生效，无需改仓库/重建镜像
 - **改密钥**：改容器内 `/opt/data/.env` → 自动备份 → 重启自愈
 - **检查启动日志**：`[pull] 存储源: S3` → 分发日志 → `[entrypoint] Starting Supervisor`
 - **R2 镜像状态**：`rclone size r2:<bucket>/<prefix>/state`
