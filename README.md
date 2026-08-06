@@ -35,7 +35,7 @@
 
 ## 启动链路
 
-1. **pull.sh**：`lsf` 探测 S3 `state/scripts` → 可用则从 S3 拉取；S3 真空/不可用切 R2；双源全挂则镜像兜底（8080 存活等待恢复）
+1. **pull.sh**：`lsf` 探测 S3 `state/scripts` → 可用则[拉取完整 `/opt/data` 状态](从 S3 `state/` 到 `/opt/data/`，含 scripts/config/.env/skills/memories/cron/plugins 等；排除 lazy-packages/bin)；S3 真空/不可用切 R2；双源全挂则镜像兜底（8080 存活等待恢复）
 2. **分发**：`scripts/*` → `/usr/local/bin/`；`config/litestream.yml`、`config/supervisord.conf` → `/etc/`；`.env` → `/opt/data/.env`（密钥自愈）
 3. **entrypoint.sh**：bootstrap health(8080) → 懒加载包重建（按 `config/lazy-requirements.txt` 从 PyPI，幂等）→ DB 恢复（S3 源走 litestream restore←S3；R2 源走临时 file:// 配置 restore←R2）→ SQLite quick_check → 交接 supervisord
 4. **supervisord**：gateway / dashboard / state-sync / litestream / health.py(8080)
