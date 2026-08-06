@@ -52,14 +52,13 @@ if [[ -z "$SOURCE" ]]; then
 fi
 export HERMES_PULL_SOURCE="${HERMES_PULL_SOURCE:-$( [[ "$SOURCE" == "$R2_STATE_SRC" ]] && echo R2 || echo S3 )}"
 
-# ── 3. 拉取 scripts + config（失败不致命，兜底/下次重启补齐）──
-mkdir -p /opt/data/scripts /opt/data/config
-"$RCLONE" copy "$SOURCE/scripts" /opt/data/scripts \
+# ── 3. 拉取完整 /opt/data 状态（业务数据自愈：scripts/config/.env/skills/memories/cron/plugins…）──
+# 排除：lazy-packages（459MB 启动时按清单重建）、bin（二进制可再生；rclone 备份不存权限位）
+mkdir -p /opt/data
+"$RCLONE" copy "$SOURCE/" /opt/data/ \
+  --exclude '/lazy-packages/**' --exclude '/bin/**' \
   --transfers 8 --checkers 16 --retries 5 --low-level-retries 10 --s3-acl= \
-  || log "scripts 拉取未完全成功（继续启动）"
-"$RCLONE" copy "$SOURCE/config" /opt/data/config \
-  --transfers 8 --checkers 16 --retries 5 --low-level-retries 10 --s3-acl= \
-  || log "config 拉取未完全成功（继续启动）"
+  || log "状态拉取未完全成功（继续启动）"
 
 # ── 4. 分发到运行位（无则保留镜像兜底文件）──
 # .env（密钥）：从存储源拉取 → /opt/data/.env（随备份自愈；仅当源存在时覆盖）
