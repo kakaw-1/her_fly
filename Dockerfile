@@ -13,7 +13,7 @@ RUN curl -fsSL --retry 3 --connect-timeout 15 --max-time 180 \
     && rm -rf /tmp/rclone*
 
 # litestream（DB → S3 实时复制；单 replica 限制，配置见 S3 config/litestream.yml）
-ARG LITESTREAM_VERSION=0.5.14
+ARG LITESTREAM_VERSION=0.5.16
 RUN curl -fsSL --retry 3 --connect-timeout 15 --max-time 180 \
       -o /tmp/litestream.tar.gz \
       "https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-${LITESTREAM_VERSION}-linux-x86_64.tar.gz" \
